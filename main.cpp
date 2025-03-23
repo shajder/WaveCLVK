@@ -89,7 +89,8 @@ int main(int argc, char** argv)
     try
     {
         app.run();
-    } catch (const std::exception& e)
+    } 
+    catch (const std::exception& e)
     {
         fprintf(stderr, "%s\n", e.what());
         return EXIT_FAILURE;
