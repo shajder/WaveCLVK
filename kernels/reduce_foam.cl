@@ -29,10 +29,10 @@ kernel void reduce(
     write_only image2d_t dst)
 {
     int2 uv = (int2)((int)get_global_id(0), (int)get_global_id(1));
-    float2 v0 = read_imagef(src, sampler, uv).xy;
-    float2 v1 = read_imagef(src, sampler, (int2)(uv.x + info.x, uv.y)).xy;
-    float2 v2 = read_imagef(src, sampler, (int2)(uv.x, uv.y + info.y)).xy;
-    float2 v3 = read_imagef(src, sampler, (int2)(uv.x + info.x, uv.y + info.y)).xy;
-    float2 mxv = max(max(max(v0, v1), v2), v3);
-    write_imagef(dst, uv, (float4)(mxv.x, mxv.y, 0, 0));
+    float v0 = read_imagef(src, sampler, uv).x;
+    float v1 = read_imagef(src, sampler, (int2)(uv.x + info.x, uv.y)).x;
+    float v2 = read_imagef(src, sampler, (int2)(uv.x, uv.y + info.y)).x;
+    float v3 = read_imagef(src, sampler, (int2)(uv.x + info.x, uv.y + info.y)).x;
+    float mxv = max(max(max(v0, v1), v2), v3);
+    write_imagef(dst, uv, (float4)(mxv, 0, 0, 0));
 }

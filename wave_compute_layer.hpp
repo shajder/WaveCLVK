@@ -97,7 +97,7 @@ protected:
     std::array<std::vector<std::unique_ptr<cl::Image2D>>, IOPT_COUNT> mems;
     std::vector<cl::Semaphore> signalSemaphores;
 
-    float delta_time=0.f;
+    float delta_time=0.001f;
 
 public:
 

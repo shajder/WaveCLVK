@@ -379,7 +379,7 @@ struct SharedOptions : public CliOptions {
   bool show_fps = true;
 
   // foam simulation range multiplier
-  unsigned short foam_scope_mult = 2;
+  unsigned short foam_size_mult = 2;
 
   // ocean parameters changed - rebuild initial spectrum resources
   bool changed = true;

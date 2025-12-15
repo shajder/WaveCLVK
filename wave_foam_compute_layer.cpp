@@ -70,7 +70,7 @@ void WaveOpenCLFoamLayer::initCompute()
         }
     };
 
-    build_opencl_kernel("kernels/copy.cl", copy_kernel, "copy");
+    build_opencl_kernel("kernels/copy_reduce.cl", copy_kernel, "copy_reduce");
     build_opencl_kernel("kernels/advect.cl", advect_kernel, "advect");
     build_opencl_kernel("kernels/divergence.cl", div_kernel, "divergence");
     build_opencl_kernel("kernels/jacobi.cl", jacobi_kernel, "jacobi");
@@ -82,8 +82,8 @@ void WaveOpenCLFoamLayer::initComputeResources()
 {
     WaveOpenCLLayer::initComputeResources();
 
-    size_t gwx = _opts.ocean_tex_size * _opts.foam_scope_mult;
-    size_t gwy = _opts.ocean_tex_size * _opts.foam_scope_mult;
+    size_t gwx = _opts.ocean_tex_size * _opts.foam_size_mult;
+    size_t gwy = _opts.ocean_tex_size * _opts.foam_size_mult;
 
     for ( int i=0; i<fld_cont.size(); i++)
     {
@@ -107,11 +107,11 @@ void WaveOpenCLFoamLayer::initComputeResources()
                 gwx, gwy);
 
     max_ranges_mem[0] = std::make_unique<cl::Image2D>(
-        context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RG, CL_FLOAT), gwx,
+        context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), gwx,
         gwy);
 
     max_ranges_mem[1] = std::make_unique<cl::Image2D>(
-        context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RG, CL_FLOAT),
+        context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
         gwx / 2, gwy / 2);
 }
 
@@ -421,8 +421,8 @@ void WaveOpenCLFoamLayer::computeFoam(const uint32_t currentImage, const cl_int2
         lws = cl::NDRange{ _opts.group_size, _opts.group_size };
     }
 
-    size_t gwx = _opts.ocean_tex_size * _opts.foam_scope_mult;
-    size_t gwy = _opts.ocean_tex_size * _opts.foam_scope_mult;
+    size_t gwx = _opts.ocean_tex_size * _opts.foam_size_mult;
+    size_t gwy = _opts.ocean_tex_size * _opts.foam_size_mult;
 
     std::int16_t swp_evts[2] = {-1, getNextFromEventsCache()};
 
@@ -455,8 +455,6 @@ void WaveOpenCLFoamLayer::computeFoam(const uint32_t currentImage, const cl_int2
                                       origin, region, nullptr, &evs->back());
         cl::Event::waitForEvents(*evs);
     }
-
-
 
 
     float dt=delta_time;
@@ -501,10 +499,10 @@ void WaveOpenCLFoamLayer::computeFoam(const uint32_t currentImage, const cl_int2
         std::swap(swp_evts[0], swp_evts[1]);
         swp_evts[1] = getNextFromEventsCache();
 
-        float vMax = std::max(buf[0], buf[1]);
+        float vMax = buf[0];
 
-        if (vMax>0.f&&!std::isnan(vMax))
-            dt = std::min(dt, dt * 16.f / vMax);
+        if (vMax > 1e-10f&&!std::isnan(vMax))
+            dt = 0.95f / vMax;
     }
 
     // Advection phase
@@ -581,11 +579,10 @@ void WaveOpenCLFoamLayer::computeFoam(const uint32_t currentImage, const cl_int2
                              _opts.wind_magnitude * glm::cos(wind_angle_rad),
                              _opts.wind_magnitude * glm::sin(wind_angle_rad),
                              delta_time,
-                             100.f,
-                             (float)_opts.foam_scope_mult};
+                             10.f,
+                             (float)_opts.foam_size_mult};
 
 
-#if 1
     {
         auto fevs = getAddr(final_events);
         foam_kernel.setArg(0, patch);
@@ -601,22 +598,5 @@ void WaveOpenCLFoamLayer::computeFoam(const uint32_t currentImage, const cl_int2
             foam_kernel, cl::NullRange,
             cl::NDRange{ _opts.ocean_tex_size, _opts.ocean_tex_size }, lws, fevs, nullptr);
     }
-#else
-
-    foam_kernel.setArg(0, patch);
-    foam_kernel.setArg(1, zr);
-    foam_kernel.setArg(2, *noise_mem);
-    foam_kernel.setArg(3, *mems[IOPT_DISPLACEMENT][currentImage]);
-    foam_kernel.setArg(4, *flds[FREAD]);
-    foam_kernel.setArg(5, *mems[IOPT_NORMAL_MAP][currentImage]);
-    foam_kernel.setArg(6, *flds[FWRITE]);
-    foam_kernel.setArg(7, *mems[IOPT_NORMAL_MAP][currentImage]);
-
-    commandQueue.enqueueNDRangeKernel(
-        foam_kernel, cl::NullRange,
-        cl::NDRange{ _opts.ocean_tex_size, _opts.ocean_tex_size }, lws);
-
-    std::swap(flds[FREAD], flds[FWRITE]);
-#endif
 }
 

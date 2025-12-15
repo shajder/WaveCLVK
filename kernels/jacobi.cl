@@ -21,29 +21,23 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-constant sampler_t sampler_repeat = CLK_ADDRESS_REPEAT | CLK_FILTER_LINEAR | CLK_NORMALIZED_COORDS_TRUE;
-float2 px2tx(float2 fuv, float4 info)
-{
-    return fuv / (float2)(info.x, info.y);
-}
+constant sampler_t sampler_repeat = CLK_ADDRESS_REPEAT | CLK_FILTER_NEAREST | CLK_NORMALIZED_COORDS_FALSE;
 kernel void jacobi( float4 info,
                     read_only image2d_t div,
                     read_only image2d_t press_src,
                     write_only image2d_t press_dst )
 {
     int2 uv = (int2)((int)get_global_id(0), (int)get_global_id(1));
-    float2 pxc = convert_float2(uv) + (float2)(0.5f);
 
-    float dc = read_imagef(div, sampler_repeat, px2tx(pxc, info)).x;
+    float dc = read_imagef(div, sampler_repeat, uv).x;
 
-    float pl = read_imagef(press_src, sampler_repeat, px2tx(pxc - (float2)( 1.f, 0.f), info)).x;
-    float pb = read_imagef(press_src, sampler_repeat, px2tx(pxc - (float2)( 0.f, 1.f), info)).x;
+    float pl = read_imagef(press_src, sampler_repeat, (uv - (int2)(1, 0))).x;
+    float pb = read_imagef(press_src, sampler_repeat, (uv - (int2)(0, 1))).x;
 
-    float pr = read_imagef(press_src, sampler_repeat, px2tx(pxc + (float2)( 1.f, 0.f), info)).x;
-    float pt = read_imagef(press_src, sampler_repeat, px2tx(pxc + (float2)( 0.f, 1.f), info)).x;
+    float pr = read_imagef(press_src, sampler_repeat, (uv + (int2)(1, 0))).x;
+    float pt = read_imagef(press_src, sampler_repeat, (uv + (int2)(0, 1))).x;
 
-    const float viscosity = 0.1f; //0.001f;
-    const float alpha = 1.f/(4.f+viscosity*info.z);
-    float pcd = alpha * (pl + pr + pb + pt - (1.f/(alpha)) * dc);
-    write_imagef(press_dst, uv, (float4)(pcd,0.f,0.f,0.f));
+    const float alpha = 0.25f;
+    float pcd = alpha * (pl + pr + pb + pt - dc);
+    write_imagef(press_dst, uv, (float4)(pcd, 0.f, 0.f, 0.f));
 }

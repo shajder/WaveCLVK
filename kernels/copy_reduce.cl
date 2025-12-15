@@ -21,31 +21,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+constant sampler_t sampler = CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST | CLK_NORMALIZED_COORDS_FALSE;
 
-// 02 ----- 12 ----- 22
-// |        |        |
-// |        |        |
-// 01 ----- 11 ----- 21
-// |        |        |
-// |        |        |
-// 00 ----- 10 ----- 20
-// info.x - simulation width
-// info.y - simulation height
-// info.z - dt
-// info.w - unused
-constant sampler_t sampler_repeat = CLK_ADDRESS_REPEAT | CLK_FILTER_NEAREST | CLK_NORMALIZED_COORDS_FALSE;
-kernel void divergence( float4 info,
-                        read_only image2d_t src,
-                        write_only image2d_t dst )
+kernel void copy_reduce( read_only image2d_t src, write_only image2d_t dst )
 {
     int2 uv = (int2)((int)get_global_id(0), (int)get_global_id(1));
-
-    float2 field01 = read_imagef(src, sampler_repeat, (uv + (int2)(-1, 0))).xy;
-    float2 field21 = read_imagef(src, sampler_repeat, (uv + (int2)( 1, 0))).xy;
-    float2 field10 = read_imagef(src, sampler_repeat, (uv + (int2)( 0,-1))).xy;
-    float2 field12 = read_imagef(src, sampler_repeat, (uv + (int2)( 0, 1))).xy;
-
-    float r = 0.5f * (field21.x - field01.x + field12.y - field10.y);
-
-    write_imagef(dst, uv, (float4)(r, 0.f, 0.f, 0.f));
+    float data = length(read_imagef(src, sampler, uv).xyz);
+    write_imagef(dst, uv, (float4)(data, 0.f, 0.f, 0.f));
 }

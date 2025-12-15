@@ -24,11 +24,6 @@ SOFTWARE.
 constant sampler_t sampler = CLK_ADDRESS_REPEAT | CLK_FILTER_LINEAR | CLK_NORMALIZED_COORDS_TRUE;
 constant sampler_t sampler_point = CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST | CLK_NORMALIZED_COORDS_FALSE;
 
-float2 px2tx(float2 fuv, int2 info)
-{
-    return fuv / (float2)(info.x, info.y);
-}
-
 // patch_info.x - ocean patch size
 // patch_info.y - ocean texture unified resolution
 // params.s0 - z min
@@ -53,64 +48,81 @@ kernel void update_foam( int2 patch_info, float8 params,
     float4 ndata = read_imagef(src, sampler_point, uv);
     float4 noise_val = read_imagef(noise, sampler_point, uv);
 
+    // Sampling neighbors for curvature
     float3 n0 = read_imagef(src, sampler, (float2)(fuv.x + 4.0 * texel, fuv.y)).xyz;
     float3 n1 = read_imagef(src, sampler, (float2)(fuv.x, fuv.y + 4.0 * texel)).xyz;
     float3 n2 = read_imagef(src, sampler, (float2)(fuv.x - 4.0 * texel, fuv.y)).xyz;
     float3 n3 = read_imagef(src, sampler, (float2)(fuv.x, fuv.y - 4.0 * texel)).xyz;
 
-    float f0 = clamp(fabs(dot(n0, n2) * (-0.5f) + 0.5f), 0.0f, 1.0f);
-    float f1 = clamp(fabs(dot(n1, n3) * (-0.5f) + 0.5f), 0.0f, 1.0f);
+    // Raw curvature computation (before exponentiation)
+    float raw_c0 = clamp(fabs(dot(n0, n2) * (-0.5f) + 0.5f), 0.0f, 1.0f);
+    float raw_c1 = clamp(fabs(dot(n1, n3) * (-0.5f) + 0.5f), 0.0f, 1.0f);
 
-    f0 = pow(f0 * 10.0f, 8.0f);
-    f1 = pow(f1 * 10.0f, 8.0f);
+    // Initial scaling
+    float c0_scaled = raw_c0 * 10.0f;
+    float c1_scaled = raw_c1 * 10.0f;
+
+    // Sharp edge for foam appearance
+    float f0_sharp = pow(c0_scaled, 8.0f);
+    float f1_sharp = pow(c1_scaled, 8.0f);
+    float mask_sharp = clamp(max(f0_sharp, f1_sharp), 0.0f, 1.0f);
+
+    // Soft edge for foam physics, use the same data, but create a wider, smoother "blob" for CFD.
+    // Instead of power 8, use e.g. 2 or smoothstep, which gives wider slopes.
+    // Thanks to this, the force is applied over a broader area around the wave crest.
+    float f0_smooth = smoothstep(0.5f, 1.0f, c0_scaled); // Threshold 0.5 starts earlier than pow^8^8
+    float f1_smooth = smoothstep(0.5f, 1.0f, c1_scaled);
+    float mask_smooth = clamp(max(f0_smooth, f1_smooth), 0.0f, 1.0f);
 
     float dz_c = read_imagef(displ, sampler, uv).y;
     float z_bias = fabs((dz_c - params.x) / (params.y - params.x));
-    float foam_fac = noise_val.x * clamp(max(f0, f1), 0.0f, 1.0f) * pow(z_bias, params.z);
+
+    // Height modifier affects both, but can be less restrictive for physics
+    float height_factor = pow(z_bias, params.z);
+
+    // Final coefficients
+    float foam_fac_visual = noise_val.x * mask_sharp * height_factor;
+    float foam_fac_physics = mask_smooth * height_factor; // Szum usunięty z fizyki dla stabilności!
 
     float3 field = read_imagef(flds, sampler_point, uv_cfd).xyz;
     float dens_val = field.z;
 
+    // Write to visual texture (using sharp mask)
     write_imagef(dst_nmap, uv, (float4)(ndata.xyz, ndata.w + (dens_val - ndata.w) * 0.5f * params.s5  ));
 
-    // add new density
-    float3 wind = (float3)(-params.s3, -params.s4, 0.f);
-    float ext_eff = clamp(dot (ndata.xyz, wind), 0.f, 1.f);
+    // Add new density (using sharp mask foam_fac_visual)
+    float injected_density = max(foam_fac_visual, dens_val);
+    // Fade old foam
+    injected_density = max(0.f, injected_density - 0.01f * params.s5);
 
-    foam_fac = max(foam_fac, dens_val);
-    foam_fac = max(0.f, foam_fac - 0.01f * params.s5);
+    float wlen = length((float3)(params.s3, params.s4, 0.f));
+    float3 wind = (float3)(params.s3, params.s4, 0.f) / (float3)(wlen);
+    // ext_eff - "exposure to wind" based on the normal
+    float ext_eff = clamp(dot (ndata.xyz, -wind), 0.f, 1.f);
 
-    // apply external force only if new density applied
     float2 velocity = field.xy;
-    if (foam_fac > dens_val)
-    {
-        velocity += params.s34 * (float2)(ext_eff * noise_val.x * params.s5 * params.s6);
-    }
-    float damp = params.s6 * 0.01f;
-    velocity = max((float2)(0.f), velocity - (float2)(damp * params.s5));
 
-    write_imagef(dst_flds, uv_cfd, (float4)(velocity, foam_fac, 0.f));
+    // deviation for noise direction
+    float max_angle_rad = 1.2f;
+    float noise_scaled = noise_val.x*2.f-1.f;
+    float angle = noise_scaled * max_angle_rad;
+    float c = cos(angle);
+    float s = sin(angle);
+    float2 rotated_wind_dir;
+    rotated_wind_dir.x = wind.x * c - wind.y * s;
+    rotated_wind_dir.y = wind.x * s + wind.y * c;
 
-#if 0
-    barrier(CLK_IMAGE_MEM_FENCE);
+    // do not apply noise because noise in the velocity field is the enemy of divergence
+    float force_strength = wlen * foam_fac_physics * ext_eff;
+    velocity += rotated_wind_dir * force_strength;
 
-    float4 prev_vel = read_imagef(vels, sampler_point, uv_cfd);
-    float2 velocity = prev_vel.xy + params.s34 * (float2)(ext_eff * noise_val.x * params.s5 * params.s6);
+    // Damping – velocity component aligned with wind direction
+    // and the wave attack coefficient included
+    float wdamp = max(0.f, dot(velocity, wind.xy)) / wlen;
+    const float total_dfac=0.001f;
+    float damp = total_dfac * wdamp * 0.5f + total_dfac * ext_eff * 0.5f;
+    velocity = velocity - (float2)(damp * wlen) * wind.xy;
 
-    float2 pxc = convert_float2(uv_cfd) + (float2)(0.5f);
-    float2 pos = pxc - (float2)(params.s5) * velocity.xy;
-    float4 val = read_imagef(dens, sampler, px2tx(pos, patch_info * (int2)(params.s7)));
-
-    if (val.x < 0.05f)
-    {
-        velocity = prev_vel.xy;
-    }
-
-    float damp = params.s6 * 0.05f;
-    velocity = max((float2)(0.f), velocity.xy - (float2)(damp * params.s5));
-
-    write_imagef(dst_vels, uv_cfd, (float4)(velocity, 0.f, 0.f));
-
-#endif
-
+    // Write to CFD fields: velocity updated smoothly, density (foam) updated sharply
+    write_imagef(dst_flds, uv_cfd, (float4)(velocity, injected_density, 0.f));
 }
