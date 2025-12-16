@@ -17,16 +17,16 @@ add_subdirectory(external/OpenCL-ICD-Loader)
 add_subdirectory(external/OpenCL-CLHPP)
 
 set(SOURCE_FILES
-    main.cpp
-    wave_render_layer.cpp
-    wave_render_layer.hpp
-    wave_compute_layer.cpp
-    wave_compute_layer.hpp
-    wave_foam_compute_layer.cpp
-    wave_foam_compute_layer.hpp
-    wave_app.cpp
-    wave_app.hpp
-    wave_util.hpp
+    src/main.cpp
+    src/wave_render_layer.cpp
+    src/wave_render_layer.hpp
+    src/wave_compute_layer.cpp
+    src/wave_compute_layer.hpp
+    src/wave_foam_compute_layer.cpp
+    src/wave_foam_compute_layer.hpp
+    src/wave_app.cpp
+    src/wave_app.hpp
+    src/wave_util.hpp
     )
 set(OPENCL_KERNELS
     kernels/twiddle.cl
