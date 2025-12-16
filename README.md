@@ -4,7 +4,7 @@
 
 ## Overview
 
-**WaveCLVK** is an advanced evolution of the ocean simulation example originally developed for the OpenCL-SDK. While the original sample provided a baseline for FFT-based water rendering, this project extends the scope significantly by introducing realistic wave spectra and a fully interactive, grid-based Fluid Dynamics (CFD) simulation for sea foam.
+**WaveCLVK** is continuation of the ocean simulation example originally developed for the OpenCL-SDK. While the original sample provided a baseline for FFT-based water rendering, this project extends the scope significantly by introducing realistic wave spectra and a fully interactive, grid-based Fluid Dynamics (CFD) simulation for sea foam.
 
 The goal was to move beyond procedural texturing and simulate foam that possesses genuine inertia, vorticity, and interaction with the wave surface.
 
